@@ -1,7 +1,6 @@
 #Requires -Version 5.0
 <# 
 .SYNOPSIS
- Resets Gsuite passwords for non-staff
  Sets various GSuite user attributes so that connected services can function properly
 .DESCRIPTION
 Using gam.exe, an encrypted oauth2.txt file, a Domain Controller, 
