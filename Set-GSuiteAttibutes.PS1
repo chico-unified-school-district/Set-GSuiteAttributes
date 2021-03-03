@@ -108,7 +108,7 @@ do {
   # Check/Set gsuite attributes
   if ( ( $guserObj.'organizations.0.costCenter' -ne $id) -or ($guserObj.'organizations.0.title' -ne $userType) ) {
    # Check Google for a matching account
-   Write-Verbose ('costCenter {0} or title {1} not set for gsuite user {2}' -f $userType, $id, $user.homepage)
+   Write-Verbose ('costCenter ''{0}'' or title ''{1}'' not set for gsuite user {2}' -f $userType, $id, $user.homepage)
    # GSUITE ORGANIZATION INFO
    # Set GSuite attributes related to MCGraw-Hill
    $msgVars = $gSuiteEmail,$userType,$id,'chicousd.net'
