@@ -40,7 +40,7 @@ param (
  [switch]$WhatIf
 )
 
-Clear-Host; $error.clear()
+# Clear-Host; $error.clear()
 # Imported Sessions
 # AD Domain Controller Session
 $adCmdLets = 'Get-ADUser'
@@ -89,10 +89,11 @@ do {
  foreach ( $user in $userObjs ) {
   # Process AD Results
   $samid = $user.samAccountName
+  $gSuiteEmail = $user.homepage
   [string]$id = $user.employeeID
   Write-Debug "Process $samid`?"
 
-  ($guser = .$gam print users query $samid) *>$null
+  ($guser = .$gam print users query $gSuiteEmail) *>$null
   if ( [string]$guser -match $samid ) {
    # Check Google for a matching account
    Write-Verbose $user.samAccountName
