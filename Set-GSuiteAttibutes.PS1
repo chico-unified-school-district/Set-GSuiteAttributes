@@ -56,7 +56,7 @@ Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmd
 $gam = '.\lib\gam-64\gam.exe' # GSuite cmd line tool - oauth2.txt is copied before this script runs
 
 # Processing
-$creationDateCutoff = (Get-Date).AddDays(-7)
+$creationDateCutoff = (Get-Date).AddDays(-4) # Shorten days to reduce re-processing accounts
 
 $params = @{
  Filter     = {
@@ -89,25 +89,33 @@ do {
  foreach ( $user in $userObjs ) {
   # Process AD Results
   $samid = $user.samAccountName
-  $gSuiteEmail = $user.homepage
-  [string]$id = $user.employeeID
   Write-Debug "Process $samid`?"
 
-  ($guser = .$gam print users query $gSuiteEmail) *>$null
-  if ( [string]$guser -match $samid ) {
+  $gSuiteEmail = $user.homepage
+  [string]$id = $user.employeeID
+  $dn = $user.DistinguishedName
+  $userType = if ( $dn -like "*Employees*" ) { 'teacher' } else { 'student' } # GSuite Title
+
+  ($guser = .$gam print users query $gSuiteEmail allfields) *>$null
+  if ( $guser.count -le 1 ) { # checks num of lines in users query result.
+   Write-Verbose "$samid not found in GSUite"
+   continue
+  }
+
+  $guserObj = $guser | ConvertFrom-CSV
+  # $guserObj.'organizations.0.costCenter'
+  # $guserObj.'organizations.0.title'
+  # Check/Set gsuite attributes
+  if ( ( $guserObj.'organizations.0.costCenter' -ne $id) -or ($guserObj.'organizations.0.title' -ne $userType) ) {
    # Check Google for a matching account
-   Write-Verbose $user.samAccountName
+   Write-Verbose ('costCenter {0} or title {1} not set for gsuite user {2}' -f $userType, $id, $user.homepage)
    # GSUITE ORGANIZATION INFO
-   $dn = $user.DistinguishedName
-   $userType = if ( $dn -like "*Employees*" ) { 'teacher' } else { 'student' } # GSuite Title
-   if ( [string]$guser -notmatch "costcenter`: $id" ) {
-    # BEGIN Update org info
-    # Set GSuite attributes related to MCGraw-Hill
-    Add-Log action "$samid,GSUite Attributes set,title $userType,costcenter $id" $WhatIf
-    if (!$WhatIf) {
-     (.$gam update user $samid@chicousd.net organization title $userType costcenter $id domain chicousd.net primary) *>$null
-    }
-   } # END Update org info
+   # Set GSuite attributes related to MCGraw-Hill
+   $msgVars = $gSuiteEmail,$userType,$id,'chicousd.net'
+   Add-Log gsuiteaction ('{0} GSUite Attributes set,title:{1}|costCenter:{2}|domain:{3}' -f $msgVars) $WhatIf
+   if (!$WhatIf) {
+    (.$gam update user $samid@chicousd.net organization title $userType costcenter $id domain chicousd.net primary) *>$null
+   }
    # GSUITE CLASSROOM_TEACHERS MEMBERSHIP
    if ( $userType -eq 'teacher' ) {
     # add staff member to GSuite Group
@@ -116,8 +124,8 @@ do {
      if (!$WhatIf) { (.$gam update group Classroom_Teachers add user $samid@chicousd.net) *>$null }
     }
    }
-  }
-  else { Write-Verbose "$samid not found in GSUite" } # End Check Google
+  } # End Check/Set gsuite attributes
+
  } # End Process AD Results
  if ( $OneLoop ) { BREAK }
  #  Wait x seconds and run again until $endTime
