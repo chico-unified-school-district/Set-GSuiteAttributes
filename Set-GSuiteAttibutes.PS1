@@ -112,7 +112,7 @@ do {
    # GSUITE ORGANIZATION INFO
    # Set GSuite attributes related to MCGraw-Hill
    $msgVars = $gSuiteEmail,$userType,$id,'chicousd.net'
-   Add-Log gsuiteaction ('{0} GSUite Attributes set,title:{1}|costCenter:{2}|domain:{3}' -f $msgVars) $WhatIf
+   Add-Log gsuiteaction ('{0},title:{1}|costCenter:{2}|domain:{3}' -f $msgVars) $WhatIf
    if (!$WhatIf) {
     (.$gam update user $samid@chicousd.net organization title $userType costcenter $id domain chicousd.net primary) *>$null
    }
