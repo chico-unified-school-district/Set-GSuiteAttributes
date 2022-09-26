@@ -1,11 +1,11 @@
 #Requires -Version 5.0
-<# 
+<#
 .SYNOPSIS
  Sets various GSuite user attributes so that connected services can function properly
 .DESCRIPTION
-Using gam.exe, an encrypted oauth2.txt file, a Domain Controller, 
-and an AD Account with propers access to the Domain, 
-the script can update AD/GSuite passwords and GSuite attributes for 
+Using gam.exe, an encrypted oauth2.txt file, a Domain Controller,
+and an AD Account with propers access to the Domain,
+the script can update AD/GSuite passwords and GSuite attributes for
 qualifying AD user objects.
 .EXAMPLE
  Reset-GSuitePasswords.ps1 -DC servername -ADCred $adCredObject
@@ -29,28 +29,29 @@ qualifying AD user objects.
 [cmdletbinding()]
 param (
  [Parameter(Mandatory = $True)]
- [Alias('DC', 'Server')]
- [ValidateScript( { Test-Connection -ComputerName $_ -Quiet -Count 1 })]
- [string]$DomainController,
- # PSSession to Domain Controller and Use Active Directory CMDLETS  
+ [Alias('DCs')]
+ [string[]]$DomainControllers,
+ # PSSession to Domain Controller and Use Active Directory CMDLETS
  [Parameter(Mandatory = $True)]
  [Alias('ADCred')]
  [System.Management.Automation.PSCredential]$ADCredential,
  [switch]$OneLoop,
+ [Alias('wi')]
  [switch]$WhatIf
 )
 
-# Clear-Host; $error.clear()
-# Imported Sessions
-# AD Domain Controller Session
-$adCmdLets = 'Get-ADUser'
-$adSession = New-PSSession -ComputerName $DomainController -Credential $ADCredential
-Import-PSSession -Session $adSession -Module ActiveDirectory -CommandName $adCmdLets -AllowClobber
-
-# Variables
-
 # Imported Functions
 . '.\lib\Add-Log.ps1' # Formats strings for logging purposes
+. .\lib\Clear-SessionData.ps1
+. .\lib\New-ADSession.ps1
+. .\lib\Select-DomainController.ps1
+. .\lib\Show-TestRun.ps1
+
+Show-TestRun
+Clear-SessionData
+
+$dc = Select-DomainController $DomainControllers
+New-ADSession -dc $dc -cmdlets 'Get-ADUser' -cred $ADCredential
 
 # External Apps
 $gam = '.\lib\gam-64\gam.exe' # GSuite cmd line tool - oauth2.txt is copied before this script runs
@@ -64,7 +65,7 @@ $params = @{
   (homepage -like "*@ChicoUSD.net") -and
   (Enabled -eq $True)
  }
- Properties = 
+ Properties =
  'employeeID',
  'homepage',
  'employeeNumber',
@@ -98,7 +99,8 @@ do {
   $userType = if ( $dn -like "*Employees*" ) { 'teacher' } else { 'student' } # GSuite Title
 
   ($guser = .$gam print users query $gSuiteEmail allfields) *>$null
-  if ( $guser.count -le 1 ) { # checks num of lines in users query result.
+  if ( $guser.count -le 1 ) {
+   # checks num of lines in users query result.
    Write-Verbose "$samid not found in GSUite"
    continue
   }
@@ -112,7 +114,7 @@ do {
    Write-Verbose ('costCenter ''{0}'' or title ''{1}'' not set for gsuite user {2}' -f $userType, $id, $user.homepage)
    # GSUITE ORGANIZATION INFO
    # Set GSuite attributes related to MCGraw-Hill
-   $msgVars = $gSuiteEmail,$userType,$id,'chicousd.net'
+   $msgVars = $gSuiteEmail, $userType, $id, 'chicousd.net'
    Add-Log gsuiteaction ('{0},title:{1}|costCenter:{2}|domain:{3}' -f $msgVars) $WhatIf
    if (!$WhatIf) {
     (.$gam update user $samid@chicousd.net organization title $userType costcenter $id domain chicousd.net primary) *>$null
@@ -138,5 +140,6 @@ do {
   }
  }
 } until ((get-date) -ge $endTime )
-Add-Log action "Tearing Down AD Sessions"
-Get-PSSession | Remove-PSSession -WhatIf:$false
+
+Clear-SessionData
+Show-TestRun
