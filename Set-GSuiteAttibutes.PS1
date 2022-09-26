@@ -70,7 +70,8 @@ $params = @{
  'employeeNumber',
  'PasswordLastSet',
  'LastLogonDate',
- 'Created'
+ 'Created',
+ 'WhenChanged'
  SearchBase = 'OU=Users,OU=Domain_Root,DC=chico,DC=usd'
 }
 
