@@ -57,7 +57,7 @@ New-ADSession -dc $dc -cmdlets 'Get-ADUser' -cred $ADCredential
 $gam = '.\bin\gam-64\gam.exe'
 
 # Processing
-$creationDateCutoff = ((Get-Date).AddDays(-30)).date # Shorten days to reduce re-processing accounts
+$creationDateCutoff = ((Get-Date).AddDays(-5)).date # Shorten days to reduce re-processing accounts
 
 $params = @{
  # Filter     = {
