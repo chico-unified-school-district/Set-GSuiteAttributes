@@ -54,17 +54,21 @@ $dc = Select-DomainController $DomainControllers
 New-ADSession -dc $dc -cmdlets 'Get-ADUser' -cred $ADCredential
 
 # External Apps
-$gam = '.\lib\gam-64\gam.exe' # GSuite cmd line tool - oauth2.txt is copied before this script runs
+$gam = '.\bin\gam-64\gam.exe'
 
 # Processing
-$creationDateCutoff = (Get-Date).AddDays(-4) # Shorten days to reduce re-processing accounts
+$creationDateCutoff = ((Get-Date).AddDays(-30)).date # Shorten days to reduce re-processing accounts
 
 $params = @{
- Filter     = {
-  (employeeID -like "*") -and
-  (homepage -like "*@ChicoUSD.net") -and
-  (Enabled -eq $True)
- }
+ # Filter     = {
+ #  (employeeID -like "*") -and
+ #  (homepage -like "*@*") -and
+ #  (Enabled -eq $True) -and
+ #  (Created -ge $creationDateCutoff)
+ # }
+ Filter     = " Created -gt '$creationDateCutoff' -and
+ EmployeeID -like '*' -and
+  homepage -like '*@*' "
  Properties =
  'employeeID',
  'homepage',
@@ -73,7 +77,6 @@ $params = @{
  'LastLogonDate',
  'Created',
  'WhenChanged'
- SearchBase = 'OU=Users,OU=Domain_Root,DC=chico,DC=usd'
 }
 
 if ( $WhatIf ) { $endTime = Get-Date } # DO Loop cut short on test run
@@ -87,10 +90,13 @@ do {
  ($classroomTeachers = . $gam info group Classroom_Teachers) *>$null
  # Cast passwordlastset and created dates to strings and compare. Only include if strings are equal.
  Write-Verbose 'Getting qualifying AD Objects...'
- $userObjs = Get-ADUser @params | Where-Object { $_.created -ge $creationDateCutoff } # Get This Week's User Objects
+ # $userObjs = Get-ADUser @params | Where-Object { $_.Enabled -eq $True } # Get User Objects
+ $userObjs = Get-ADUser @params | Sort-Object -Property Created -Descending
+ Write-Verbose $userObjs.count
  foreach ( $user in $userObjs ) {
   # Process AD Results
   $samid = $user.samAccountName
+  Write-Verbose $samid
   Write-Debug "Process $samid`?"
 
   $gSuiteEmail = $user.homepage
@@ -106,8 +112,8 @@ do {
   }
 
   $guserObj = $guser | ConvertFrom-CSV
-  # $guserObj.'organizations.0.costCenter'
-  # $guserObj.'organizations.0.title'
+  $msgVarsGsuiteData = $samid, $guserObj.'organizations.0.costCenter', $guserObj.'organizations.0.title'
+  Write-Verbose ('{0},CostCenter: [{1}],Title: [{2}]' -f $msgVarsGsuiteData)
   # Check/Set gsuite attributes
   if ( ( $guserObj.'organizations.0.costCenter' -ne $id) -or ($guserObj.'organizations.0.title' -ne $userType) ) {
    # Check Google for a matching account
@@ -143,3 +149,5 @@ do {
 
 Clear-SessionData
 Show-TestRun
+
+# Get-ADUsers |
