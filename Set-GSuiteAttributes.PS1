@@ -92,7 +92,7 @@ do {
  Write-Verbose 'Getting qualifying AD Objects...'
  # $userObjs = Get-ADUser @params | Where-Object { $_.Enabled -eq $True } # Get User Objects
  $userObjs = Get-ADUser @params | Sort-Object -Property Created -Descending
- Write-Verbose $userObjs.count
+ if ($userObjs.count -ge 1) { Write-Verbose $userObjs.count }
  foreach ( $user in $userObjs ) {
   # Process AD Results
   $samid = $user.samAccountName
