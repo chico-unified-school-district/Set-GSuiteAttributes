@@ -44,6 +44,57 @@ param (
  [switch]$WhatIf
 )
 # ========================================New=======================================
+function Add-GGroupMember {
+ begin {
+  Write-Verbose ('Getting {0} GSuite group members...' -f $GoogleGroup)
+  ($groupList = & $gam info group $GoogleGroup) *>$null
+ }
+ process {
+  if ($_.title -ne 'teacher') { return }
+
+  $msg = $MyInvocation.MyCommand.Name, $_.gmail
+
+  if ( [string]$groupList -match $_.gmail ) {
+   return (Write-Verbose ("{0},[{1}] Group membership correct" -f $msg))
+  }
+
+  $vMsg = "& $gam update group {0} add user {1}" -f $GoogleGroup, $_.gmail
+  Write-Verbose ("{0},[{1}]" -f $MyInvocation.MyCommand.Name, $vMsg)
+  Write-Host ('{0},[{1}]' -f $msg) -F Blue
+  if (-not$WhatIf) {
+   & $gam update group $GoogleGroup add user $_.gmail
+  }
+ }
+}
+
+function Compare-GData {
+ process {
+  ($guser = & $gam print users query "email:$($_.gmail)" allfields) *>$null
+  $msg = $MyInvocation.MyCommand.Name, $_.gmail
+  if (-not$guser) { return (Write-Verbose ("{0},[{1}] not found in GSUite" -f $msg)) }
+
+  Write-Verbose ('{0},[{1}]' -f $msg)
+  $gObj = $guser | ConvertFrom-CSV
+  $cc = $gObj.'organizations.0.costCenter'
+  $title = $gObj.'organizations.0.title'
+  if ( ($cc -eq $_.costCenter) -and ($title -eq $_.title) ) {
+   $_.update = $false
+   return $_
+  }
+  $_
+ }
+}
+
+function Format-Obj {
+ process {
+  [pscustomobject]@{
+   costCenter = $_.EmployeeID
+   gmail      = $_.homepage
+   update     = $null
+   title      = if ( $_.DistinguishedName -like "*Employees*" ) { 'teacher' } else { 'student' }
+  }
+ }
+}
 
 function Get-ADObjs ($dcs, $cred) {
  begin {
@@ -65,58 +116,6 @@ function Get-ADObjs ($dcs, $cred) {
  }
 }
 
-function Format-Obj {
- process {
-  [pscustomobject]@{
-   dn         = $_.DistinguishedName
-   costCenter = $_.EmployeeID
-   gmail      = $_.homepage
-   update     = $null
-   title      = if ( $_.dn -like "*Employees*" ) { 'teacher' } else { 'student' }
-  }
- }
-}
-
-function Compare-GData {
- begin {
- }
- process {
-  $gmail = $_.gmail
-  ($guser = & $gam print users query "email:$gmail" allfields) *>$null
-  $msg = $MyInvocation.MyCommand.Name, $_.gmail
-  if (-not$guser) { return (Write-Verbose ("{0},[{1}] not found in GSUite" -f $msg)) }
-  Write-Verbose ('{0},[{1}]' -f $msg)
-  $gObj = $guser | ConvertFrom-CSV
-  $cc = $gObj.'organizations.0.costCenter'
-  $title = $gObj.'organizations.0.title'
-  if ( ($cc -eq $_.costCenter) -and ($title -eq $_.title) ) {
-   $_.update = $false
-   return $_
-  }
-  $_
- }
-}
-
-function Add-GGroupMember {
- begin {
-  Write-Verbose ('Getting {0} GSuite group members...' -f $GoogleGroup)
-  ($groupList = & $gam info group $GoogleGroup) *>$null
- }
- process {
-  if ($_.title -ne 'teacher') { return }
-  if ( [string]$groupList -match $_.gmail ) {
-   $msg = $MyInvocation.MyCommand.Name, $_.gmail
-   return (Write-Verbose ("{0},[{1}] Group membership correct" -f $msg))
-  }
-  $vMsg = "& $gam update group {0} add user {1}" -f $GoogleGroup, $_.gmail
-  Write-Verbose ("{0},[{1}]" -f $MyInvocation.MyCommand.Name, $vMsg)
-  if (-not$WhatIf) {
-   Write-Host ('{0}' -f $MyInvocation.MyCommand.Name)
-   & $gam update group $GoogleGroup add user $_.gmail
-  }
- }
-}
-
 function Update-GUser {
  process {
   $msg = $MyInvocation.MyCommand.Name, $_.gmail
@@ -128,6 +127,7 @@ function Update-GUser {
 
   $vMsg = "& $gam update user $gmail organization title $title costcenter $cc domain $GoogleDomain primary"
   Write-Verbose ("{0},[{1}]" -f $MyInvocation.MyCommand.Name, $vMsg)
+  Write-Host ('{0},[{1}]' -f $msg) -f Blue
   if ($WhatIf) { return $_ }
   & $gam update user $gmail organization title $title costcenter $cc domain $GoogleDomain primary
   $_
@@ -135,16 +135,23 @@ function Update-GUser {
 }
 
 # ======================================== Main =======================================
-
 . .\lib\Clear-SessionData.ps1
 . .\lib\New-ADSession.ps1
 . .\lib\Select-DomainController.ps1
 . .\lib\Show-TestRun.ps1
 
 $gam = '.\bin\gam.exe'
+
+Show-TestRun
+
 if (-not$WhatIf) { Write-Host 'Runs every 60 minutes' -F Green }
+
 do {
+ Clear-SessionData
  Get-ADObjs $DomainControllers $ADCredential | Format-Obj | Compare-GData | Update-GUser | Add-GGroupMember
- Write-Host ( 'Next Run at {0}' -f (Get-Date).AddMinutes(60) ) -F Green
- if (-not$WhatIf) { Start-Sleep (60 * 60) }
+ Clear-SessionData
+ if (-not$WhatIf) {
+  Write-Host ( 'Next Run at {0}' -f (Get-Date).AddMinutes(60) ) -F Green
+  Start-Sleep (60 * 60)
+ }
 } until ($WhatIf -or ((Get-Date) -ge $StopTime))
