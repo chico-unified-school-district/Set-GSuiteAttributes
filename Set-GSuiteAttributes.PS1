@@ -35,119 +35,116 @@ param (
  [Parameter(Mandatory = $True)]
  [Alias('ADCred')]
  [System.Management.Automation.PSCredential]$ADCredential,
- [switch]$OneLoop,
+ [Parameter(Mandatory = $True)]
+ [string]$GoogleDomain,
+ [Parameter(Mandatory = $True)]
+ [string]$GoogleGroup,
+ [string]$StopTime = '5:00 PM',
  [Alias('wi')]
  [switch]$WhatIf
 )
+# ========================================New=======================================
 
-# Imported Functions
-. '.\lib\Add-Log.ps1' # Formats strings for logging purposes
+function Get-ADObjs ($dcs, $cred) {
+ begin {
+  $creationDateCutoff = ((Get-Date).AddDays(-5)).date # Shorten days to reduce re-processing accounts
+  $params = @{
+   Filter     = "Created -gt '$creationDateCutoff' -and
+    EmployeeID -like '*' -and
+    homepage -like '*@*' -and
+    Enabled -eq 'True'"
+   Properties = 'employeeID', 'homepage'
+  }
+  $dc = Select-DomainController $dcs
+  New-ADSession -dc $dc -cmdlets 'Get-ADUser' -cred $cred
+ }
+ process {
+  $objs = Get-ADUser @params
+  Write-Verbose ('{0} count: {1}' -f $MyInvocation.MyCommand.Name, $objs.count)
+  $objs
+ }
+}
+
+function Format-Obj {
+ process {
+  [pscustomobject]@{
+   dn         = $_.DistinguishedName
+   costCenter = $_.EmployeeID
+   gmail      = $_.homepage
+   update     = $null
+   title      = if ( $_.dn -like "*Employees*" ) { 'teacher' } else { 'student' }
+  }
+ }
+}
+
+function Compare-GData {
+ begin {
+ }
+ process {
+  $gmail = $_.gmail
+  ($guser = & $gam print users query "email:$gmail" allfields) *>$null
+  $msg = $MyInvocation.MyCommand.Name, $_.gmail
+  if (-not$guser) { return (Write-Verbose ("{0},[{1}] not found in GSUite" -f $msg)) }
+  Write-Verbose ('{0},[{1}]' -f $msg)
+  $gObj = $guser | ConvertFrom-CSV
+  $cc = $gObj.'organizations.0.costCenter'
+  $title = $gObj.'organizations.0.title'
+  if ( ($cc -eq $_.costCenter) -and ($title -eq $_.title) ) {
+   $_.update = $false
+   return $_
+  }
+  $_
+ }
+}
+
+function Add-GGroupMember {
+ begin {
+  Write-Verbose ('Getting {0} GSuite group members...' -f $GoogleGroup)
+  ($groupList = & $gam info group $GoogleGroup) *>$null
+ }
+ process {
+  if ($_.title -ne 'teacher') { return }
+  if ( [string]$groupList -match $_.gmail ) {
+   $msg = $MyInvocation.MyCommand.Name, $_.gmail
+   return (Write-Verbose ("{0},[{1}] Group membership correct" -f $msg))
+  }
+  $vMsg = "& $gam update group {0} add user {1}" -f $GoogleGroup, $_.gmail
+  Write-Verbose ("{0},[{1}]" -f $MyInvocation.MyCommand.Name, $vMsg)
+  if (-not$WhatIf) {
+   Write-Host ('{0}' -f $MyInvocation.MyCommand.Name)
+   & $gam update group $GoogleGroup add user $_.gmail
+  }
+ }
+}
+
+function Update-GUser {
+ process {
+  $msg = $MyInvocation.MyCommand.Name, $_.gmail
+  if ($_.update -eq $false ) { return (Write-Verbose ("{0},[{1}] Data is correct" -f $msg)), $_ }
+
+  $gmail = $_.gmail
+  $title = $_.title
+  $cc = $_.costCenter
+
+  $vMsg = "& $gam update user $gmail organization title $title costcenter $cc domain $GoogleDomain primary"
+  Write-Verbose ("{0},[{1}]" -f $MyInvocation.MyCommand.Name, $vMsg)
+  if ($WhatIf) { return $_ }
+  & $gam update user $gmail organization title $title costcenter $cc domain $GoogleDomain primary
+  $_
+ }
+}
+
+# ======================================== Main =======================================
+
 . .\lib\Clear-SessionData.ps1
 . .\lib\New-ADSession.ps1
 . .\lib\Select-DomainController.ps1
 . .\lib\Show-TestRun.ps1
 
-Show-TestRun
-Clear-SessionData
-
-$dc = Select-DomainController $DomainControllers
-New-ADSession -dc $dc -cmdlets 'Get-ADUser' -cred $ADCredential
-
-# External Apps
-$gam = '.\bin\gam-64\gam.exe'
-
-# Processing
-$creationDateCutoff = ((Get-Date).AddDays(-5)).date # Shorten days to reduce re-processing accounts
-
-$params = @{
- # Filter     = {
- #  (employeeID -like "*") -and
- #  (homepage -like "*@*") -and
- #  (Enabled -eq $True) -and
- #  (Created -ge $creationDateCutoff)
- # }
- Filter     = " Created -gt '$creationDateCutoff' -and
- EmployeeID -like '*' -and
-  homepage -like '*@*' "
- Properties =
- 'employeeID',
- 'homepage',
- 'employeeNumber',
- 'PasswordLastSet',
- 'LastLogonDate',
- 'Created',
- 'WhenChanged'
-}
-
-if ( $WhatIf ) { $endTime = Get-Date } # DO Loop cut short on test run
-else { $endTime = (get-date "5:00 PM") } # DO Loop stops at this time
-if ($WhatIf) { $waitTime = 1 } else { $waitTime = 3600 } # Sleep fox x seconds between each loop.
-Add-Log script "Running until $endTime" $WhatIf
-if (!$WhatIf) { Add-Log script "Running every $($waitTime/60) minutes" }
-
+$gam = '.\bin\gam.exe'
+if (-not$WhatIf) { Write-Host 'Runs every 60 minutes' -F Green }
 do {
- Write-Verbose 'Getting Classroom_Teachers GSuite group members...'
- ($classroomTeachers = . $gam info group Classroom_Teachers) *>$null
- # Cast passwordlastset and created dates to strings and compare. Only include if strings are equal.
- Write-Verbose 'Getting qualifying AD Objects...'
- # $userObjs = Get-ADUser @params | Where-Object { $_.Enabled -eq $True } # Get User Objects
- $userObjs = Get-ADUser @params | Sort-Object -Property Created -Descending
- if ($userObjs.count -ge 1) { Write-Verbose $userObjs.count }
- foreach ( $user in $userObjs ) {
-  # Process AD Results
-  $samid = $user.samAccountName
-  Write-Verbose $samid
-  Write-Debug "Process $samid`?"
-
-  $gSuiteEmail = $user.homepage
-  [string]$id = $user.employeeID
-  $dn = $user.DistinguishedName
-  $userType = if ( $dn -like "*Employees*" ) { 'teacher' } else { 'student' } # GSuite Title
-
-  ($guser = .$gam print users query $gSuiteEmail allfields) *>$null
-  if ( $guser.count -le 1 ) {
-   # checks num of lines in users query result.
-   Write-Verbose "$samid not found in GSUite"
-   continue
-  }
-
-  $guserObj = $guser | ConvertFrom-CSV
-  $msgVarsGsuiteData = $samid, $guserObj.'organizations.0.costCenter', $guserObj.'organizations.0.title'
-  Write-Verbose ('{0},CostCenter: [{1}],Title: [{2}]' -f $msgVarsGsuiteData)
-  # Check/Set gsuite attributes
-  if ( ( $guserObj.'organizations.0.costCenter' -ne $id) -or ($guserObj.'organizations.0.title' -ne $userType) ) {
-   # Check Google for a matching account
-   Write-Verbose ('costCenter ''{0}'' or title ''{1}'' not set for gsuite user {2}' -f $userType, $id, $user.homepage)
-   # GSUITE ORGANIZATION INFO
-   # Set GSuite attributes related to MCGraw-Hill
-   $msgVars = $gSuiteEmail, $userType, $id, 'chicousd.net'
-   Add-Log gsuiteaction ('{0},title:{1}|costCenter:{2}|domain:{3}' -f $msgVars) $WhatIf
-   if (!$WhatIf) {
-    (.$gam update user $samid@chicousd.net organization title $userType costcenter $id domain chicousd.net primary) *>$null
-   }
-   # GSUITE CLASSROOM_TEACHERS MEMBERSHIP
-   if ( $userType -eq 'teacher' ) {
-    # add staff member to GSuite Group
-    if ( [string]$classroomTeachers -notmatch "$samid@chicousd.net" ) {
-     Add-Log add "$samid,'Classroom_Teachers' GSuite group" $WhatIf
-     if (!$WhatIf) { (.$gam update group Classroom_Teachers add user $samid@chicousd.net) *>$null }
-    }
-   }
-  } # End Check/Set gsuite attributes
-
- } # End Process AD Results
- if ( $OneLoop ) { BREAK }
- #  Wait x seconds and run again until $endTime
- if ( !$WhatIf ) {
-  "Next run at $((get-Date).AddSeconds($waitTime))"
-  foreach ($n in $waitTime..1) {
-   Start-Sleep 1
-   # Write-Progress -Activity "Processing User Objects" -Status Waiting -Sec $n
-  }
- }
-} until ((get-date) -ge $endTime )
-
-Clear-SessionData
-Show-TestRun
-
-# Get-ADUsers |
+ Get-ADObjs $DomainControllers $ADCredential | Format-Obj | Compare-GData | Update-GUser | Add-GGroupMember
+ Write-Host ( 'Next Run at {0}' -f (Get-Date).AddMinutes(60) ) -F Green
+ if (-not$WhatIf) { Start-Sleep (60 * 60) }
+} until ($WhatIf -or ((Get-Date) -ge $StopTime))

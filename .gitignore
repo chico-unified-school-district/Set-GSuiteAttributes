@@ -71,3 +71,9 @@ Temporary Items
 /jenkins.ps1
 /lib/gam-64/oauth2.txt
 /bin/gam-64/oauth2.txt
+/params.ps1
+/bin/gam.exe
+/bin/oauth2.txt
+/bin/roots.pem
+*roots.pem
+*oauth2.txt
