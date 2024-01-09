@@ -61,9 +61,7 @@ function Add-GGroupMember {
   $vMsg = "& $gam update group {0} add user {1}" -f $GoogleGroup, $_.gmail
   Write-Verbose ("{0},[{1}]" -f $MyInvocation.MyCommand.Name, $vMsg)
   Write-Host ('{0},[{1}]' -f $msg) -F Blue
-  if (-not$WhatIf) {
-   & $gam update group $GoogleGroup add user $_.gmail
-  }
+  if (-not$WhatIf) { (& $gam update group $GoogleGroup add user $_.gmail) *>$null }
  }
 }
 
@@ -71,10 +69,11 @@ function Compare-GData {
  process {
   ($guser = & $gam print users query "email:$($_.gmail)" allfields) *>$null
   $msg = $MyInvocation.MyCommand.Name, $_.gmail
-  if (-not$guser) { return (Write-Verbose ("{0},[{1}] not found in GSUite" -f $msg)) }
+  $gObj = $guser | ConvertFrom-CSV
+  if (-not$gObj) { return (Write-Verbose ("{0},[{1}] not found in GSUite" -f $msg)) }
 
   Write-Verbose ('{0},[{1}]' -f $msg)
-  $gObj = $guser | ConvertFrom-CSV
+
   $cc = $gObj.'organizations.0.costCenter'
   $title = $gObj.'organizations.0.title'
   if ( ($cc -eq $_.costCenter) -and ($title -eq $_.title) ) {
@@ -128,8 +127,9 @@ function Update-GUser {
   $vMsg = "& $gam update user $gmail organization title $title costcenter $cc domain $GoogleDomain primary"
   Write-Verbose ("{0},[{1}]" -f $MyInvocation.MyCommand.Name, $vMsg)
   Write-Host ('{0},[{1}]' -f $msg) -f Blue
-  if ($WhatIf) { return $_ }
-  & $gam update user $gmail organization title $title costcenter $cc domain $GoogleDomain primary
+  if (-not$WhatIf) {
+   (& $gam update user $gmail organization title $title costcenter $cc domain $GoogleDomain primary) *>$null
+  }
   $_
  }
 }
