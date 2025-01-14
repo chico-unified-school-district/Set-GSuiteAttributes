@@ -5,22 +5,21 @@
 .DESCRIPTION
 Using gam.exe, an encrypted oauth2.txt file, a Domain Controller,
 and an AD Account with propers access to the Domain,
-the script can update AD/GSuite passwords and GSuite attributes for
+the script can update AD/GSuite attributes for
 qualifying AD user objects.
 .EXAMPLE
- Reset-GSuitePasswords.ps1 -DCs servername -ADCred $adCredObject
+ Set-GSuiteAttributes.PS1 -DCs servername -ADCred $adCredObject
 .EXAMPLE
- Reset-GSuitePasswords.ps1 -DCs servername -ADCred $adCredObject -WhatIf -Verbose -Debug
+ Set-GSuiteAttributes.PS1 -DCs servername -ADCred $adCredObject -WhatIf -Verbose -Debug
 .EXAMPLE
- Reset-GSuitePasswords.ps1 -OneLoop -DCs servername -ADCred $adCredObject
+ Set-GSuiteAttributes.PS1 -OneLoop -DCs servername -ADCred $adCredObject
 .INPUTS
  Gam.exe oauth2.txt
- ACtive Driectory Domain Controller name.
+ ACtive Directory Domain Controller name.
  Active Directory account with access to the Domain Controller
  and proper OU access
 .OUTPUTS
  AD objects are updated
- AD/GSuite passwords are updated
  GSuite attributes are updated
  Logging info is generated for each action
 .NOTES
