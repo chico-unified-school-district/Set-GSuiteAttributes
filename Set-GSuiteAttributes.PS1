@@ -94,7 +94,7 @@ function Format-Obj {
  }
 }
 
-function Get-ADObjs ($dcs, $cred) {
+function Get-ADObjs {
  begin {
   $creationDateCutoff = ((Get-Date).AddDays(-5)).date # Shorten days to reduce re-processing accounts
   $params = @{
@@ -104,8 +104,6 @@ function Get-ADObjs ($dcs, $cred) {
     Enabled -eq 'True'"
    Properties = 'employeeID', 'homepage'
   }
-  $dc = Select-DomainController $dcs
-  New-ADSession -dc $dc -cmdlets 'Get-ADUser' -cred $cred
  }
  process {
   $objs = Get-ADUser @params
@@ -132,25 +130,31 @@ function Update-GUser {
   $_
  }
 }
-
 # ======================================== Main =======================================
-. .\lib\Clear-SessionData.ps1
-. .\lib\New-ADSession.ps1
-. .\lib\Select-DomainController.ps1
-. .\lib\Show-TestRun.ps1
+Import-Module -Name 'CommonScriptFunctions'
+
+Show-BlockInfo Start
+if ($WhatIf) { Show-TestRun }
 
 $gam = '.\bin\gam.exe'
 
-Show-TestRun
-
-if (-not$WhatIf) { Write-Host 'Runs every 60 minutes' -F Green }
-
+Write-Host 'Runs every 60 minutes' -F Green
 do {
  Clear-SessionData
- Get-ADObjs $DomainControllers $ADCredential | Format-Obj | Compare-GData | Update-GUser | Add-GGroupMember
+ Connect-ADSession -DomainControllers $DomainControllers -Credential $ADCredential -Cmdlets 'Get-ADUser'
+
+ Get-ADObjs |
+  Format-Obj |
+   Compare-GData |
+    Update-GUser |
+     Add-GGroupMember
+
  Clear-SessionData
- if (-not$WhatIf) {
+ if (!$WhatIf) {
   Write-Host ( 'Next Run at {0}' -f (Get-Date).AddMinutes(60) ) -F Green
   Start-Sleep (60 * 60)
  }
 } until ($WhatIf -or ((Get-Date) -ge $StopTime))
+
+if ($WhatIf) { Show-TestRun }
+Show-BlockInfo End
