@@ -1,29 +1,64 @@
 #Requires -Version 5.0
 <#
 .SYNOPSIS
- Sets various GSuite user attributes so that connected services can function properly
+Synchronizes Active Directory user attributes with Google Workspace (formerly GSuite).
+
 .DESCRIPTION
-Using gam.exe, an encrypted oauth2.txt file, a Domain Controller,
-and an AD Account with propers access to the Domain,
-the script can update AD/GSuite attributes for
-qualifying AD user objects.
+This script automates the synchronization of user attributes between Active Directory and Google Workspace.
+It performs the following key functions:
+- Updates user organization details (cost center and title)
+- Manages teacher group memberships
+- Processes only accounts modified in the last 5 days
+- Runs continuously with configurable stop time
+- Uses GAM for Google Workspace operations
+
+.PARAMETER DomainControllers
+Array of domain controller hostnames to connect to for AD operations.
+
+.PARAMETER ADCredential
+PSCredential object containing AD account with necessary permissions to read user objects.
+
+.PARAMETER GoogleDomain
+The primary domain name of your Google Workspace organization (e.g., "school.edu").
+
+.PARAMETER GoogleGroup
+The email address of the Google Group to manage teacher memberships (e.g., "teachers@school.edu").
+
+.PARAMETER StopTime
+Optional. Time to stop processing (default: 5:00 PM). Format: "HH:mm tt"
+
+.PARAMETER WhatIf
+Optional. Run in test mode without making actual changes.
+
 .EXAMPLE
- Set-GSuiteAttributes.PS1 -DCs servername -ADCred $adCredObject
+# Basic usage with required parameters
+Set-GSuiteAttributes.PS1 -DCs "dc01.school.edu" -ADCred $credentials -GoogleDomain "school.edu" -GoogleGroup "teachers@school.edu"
+
 .EXAMPLE
- Set-GSuiteAttributes.PS1 -DCs servername -ADCred $adCredObject -WhatIf -Verbose -Debug
+# Test run with verbose logging
+Set-GSuiteAttributes.PS1 -DCs "dc01.school.edu" -ADCred $credentials -GoogleDomain "school.edu" -GoogleGroup "teachers@school.edu" -WhatIf -Verbose
+
 .EXAMPLE
- Set-GSuiteAttributes.PS1 -OneLoop -DCs servername -ADCred $adCredObject
-.INPUTS
- Gam.exe oauth2.txt
- ACtive Directory Domain Controller name.
- Active Directory account with access to the Domain Controller
- and proper OU access
-.OUTPUTS
- AD objects are updated
- GSuite attributes are updated
- Logging info is generated for each action
+# Run with custom stop time
+Set-GSuiteAttributes.PS1 -DCs "dc01.school.edu" -ADCred $credentials -GoogleDomain "school.edu" -GoogleGroup "teachers@school.edu" -StopTime "6:00 PM"
+
 .NOTES
- This was built for use with Jenkins
+Requirements:
+- PowerShell 5.0+
+- GAM installed at C:\GAM7\gam.exe
+- Active Directory domain controller access
+- Google Workspace admin access
+- CommonScriptFunctions module
+- Configured oauth2.txt for GAM authentication
+
+The script only processes AD accounts that meet these criteria:
+- Created/modified within the last 5 days
+- Have an EmployeeID attribute
+- Have a homepage attribute (used as Gmail address)
+- Account is enabled
+
+.LINK
+https://github.com/jay0lee/GAM
 #>
 [cmdletbinding()]
 param (
@@ -46,7 +81,9 @@ param (
 function Add-GGroupMember {
  begin {
   Write-Verbose ('Getting {0} GSuite group members...' -f $GoogleGroup)
+  $ErrorActionPreference = 'Continue'
   ($groupList = & $gam info group $GoogleGroup) *>$null
+  $ErrorActionPreference = 'Stop'
  }
  process {
   if ($_.title -ne 'teacher') { return }
@@ -54,22 +91,28 @@ function Add-GGroupMember {
   $msg = $MyInvocation.MyCommand.Name, $_.gmail
 
   if ( [string]$groupList -match $_.gmail ) {
-   return (Write-Verbose ("{0},[{1}] Group membership correct" -f $msg))
+   return (Write-Verbose ('{0},[{1}] Group membership correct' -f $msg))
   }
 
   $vMsg = "& $gam update group {0} add user {1}" -f $GoogleGroup, $_.gmail
-  Write-Verbose ("{0},[{1}]" -f $MyInvocation.MyCommand.Name, $vMsg)
+  Write-Verbose ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $vMsg)
   Write-Host ('{0},[{1}]' -f $msg) -F Blue
-  if (-not$WhatIf) { (& $gam update group $GoogleGroup add user $_.gmail) *>$null }
+  if (-not$WhatIf) {
+   $ErrorActionPreference = 'Continue'
+   (& $gam update group $GoogleGroup add user $_.gmail) *>$null
+   $ErrorActionPreference = 'Stop'
+  }
  }
 }
 
 function Compare-GData {
  process {
+  $ErrorActionPreference = 'Continue'
   ($guser = & $gam print users query "email:$($_.gmail)" allfields) *>$null
+  $ErrorActionPreference = 'Stop'
   $msg = $MyInvocation.MyCommand.Name, $_.gmail
-  $gObj = $guser | ConvertFrom-CSV
-  if (-not$gObj) { return (Write-Verbose ("{0},[{1}] not found in GSUite" -f $msg)) }
+  $gObj = $guser | ConvertFrom-Csv
+  if (-not$gObj) { return (Write-Verbose ('{0},[{1}] not found in GSUite' -f $msg)) }
 
   Write-Verbose ('{0},[{1}]' -f $msg)
 
@@ -89,7 +132,7 @@ function Format-Obj {
    costCenter = $_.EmployeeID
    gmail      = $_.homepage
    update     = $null
-   title      = if ( $_.DistinguishedName -like "*Employees*" ) { 'teacher' } else { 'student' }
+   title      = if ( $_.DistinguishedName -like '*Employees*' ) { 'teacher' } else { 'student' }
   }
  }
 }
@@ -115,17 +158,19 @@ function Get-ADObjs {
 function Update-GUser {
  process {
   $msg = $MyInvocation.MyCommand.Name, $_.gmail
-  if ($_.update -eq $false ) { return (Write-Verbose ("{0},[{1}] Data is correct" -f $msg)), $_ }
+  if ($_.update -eq $false ) { return (Write-Verbose ('{0},[{1}] Data is correct' -f $msg)), $_ }
 
   $gmail = $_.gmail
   $title = $_.title
   $cc = $_.costCenter
 
   $vMsg = "& $gam update user $gmail organization title $title costcenter $cc domain $GoogleDomain primary"
-  Write-Verbose ("{0},[{1}]" -f $MyInvocation.MyCommand.Name, $vMsg)
+  Write-Verbose ('{0},[{1}]' -f $MyInvocation.MyCommand.Name, $vMsg)
   Write-Host ('{0},[{1}]' -f $msg) -f Blue
   if (-not$WhatIf) {
+   $ErrorActionPreference = 'Continue'
    (& $gam update user $gmail organization title $title costcenter $cc domain $GoogleDomain primary) *>$null
+   $ErrorActionPreference = 'Stop'
   }
   $_
  }
@@ -136,7 +181,7 @@ Import-Module -Name 'CommonScriptFunctions'
 Show-BlockInfo Start
 if ($WhatIf) { Show-TestRun }
 
-$gam = '.\bin\gam.exe'
+$gam = 'C:\GAM7\gam.exe'
 
 Write-Host 'Runs every 60 minutes' -F Green
 do {
