@@ -12,9 +12,6 @@ It performs the following key functions:
 - Runs continuously with configurable stop time
 - Uses GAM for Google Workspace operations
 
-.PARAMETER DomainControllers
-Array of domain controller hostnames to connect to for AD operations.
-
 .PARAMETER ADCredential
 PSCredential object containing AD account with necessary permissions to read user objects.
 
@@ -32,15 +29,15 @@ Optional. Run in test mode without making actual changes.
 
 .EXAMPLE
 # Basic usage with required parameters
-Set-GSuiteAttributes.PS1 -DCs "dc01.school.edu" -ADCred $credentials -GoogleDomain "school.edu" -GoogleGroup "teachers@school.edu"
+Set-GSuiteAttributes.PS1 -ADCred $credentials -GoogleDomain "school.edu" -GoogleGroup "teachers@school.edu"
 
 .EXAMPLE
 # Test run with verbose logging
-Set-GSuiteAttributes.PS1 -DCs "dc01.school.edu" -ADCred $credentials -GoogleDomain "school.edu" -GoogleGroup "teachers@school.edu" -WhatIf -Verbose
+Set-GSuiteAttributes.PS1 -ADCred $credentials -GoogleDomain "school.edu" -GoogleGroup "teachers@school.edu" -WhatIf -Verbose
 
 .EXAMPLE
 # Run with custom stop time
-Set-GSuiteAttributes.PS1 -DCs "dc01.school.edu" -ADCred $credentials -GoogleDomain "school.edu" -GoogleGroup "teachers@school.edu" -StopTime "6:00 PM"
+Set-GSuiteAttributes.PS1 -ADCred $credentials -GoogleDomain "school.edu" -GoogleGroup "teachers@school.edu" -StopTime "6:00 PM"
 
 .NOTES
 Requirements:
@@ -62,20 +59,11 @@ https://github.com/jay0lee/GAM
 #>
 [cmdletbinding()]
 param (
- [Parameter(Mandatory = $True)]
- [Alias('DCs')]
- [string[]]$DomainControllers,
- # PSSession to Domain Controller and Use Active Directory CMDLETS
- [Parameter(Mandatory = $True)]
- [Alias('ADCred')]
- [System.Management.Automation.PSCredential]$ADCredential,
- [Parameter(Mandatory = $True)]
- [string]$GoogleDomain,
- [Parameter(Mandatory = $True)]
- [string]$GoogleGroup,
+ [Parameter(Mandatory = $True)][PSCredential]$ADCredential,
+ [Parameter(Mandatory = $True)][string]$GoogleDomain,
+ [Parameter(Mandatory = $True)][string]$GoogleGroup,
  [string]$StopTime = '5:00 PM',
- [Alias('wi')]
- [switch]$WhatIf
+ [Alias('wi')][switch]$WhatIf
 )
 # ========================================New=======================================
 function Add-GGroupMember {
@@ -138,6 +126,7 @@ function Format-Obj {
 }
 
 function Get-ADObjs {
+ param ([Parameter(Mandatory = $True)][pscredential]$Cred)
  begin {
   $creationDateCutoff = ((Get-Date).AddDays(-5)).date # Shorten days to reduce re-processing accounts
   $params = @{
@@ -146,6 +135,7 @@ function Get-ADObjs {
     homepage -like '*@*' -and
     Enabled -eq 'True'"
    Properties = 'employeeID', 'homepage'
+   Credential = $Cred
   }
  }
  process {
@@ -158,7 +148,7 @@ function Get-ADObjs {
 function Update-GUser {
  process {
   $msg = $MyInvocation.MyCommand.Name, $_.gmail
-  if ($_.update -eq $false ) { return (Write-Verbose ('{0},[{1}] Data is correct' -f $msg)), $_ }
+  if ($_.update -eq $false ) { return (Write-Verbose ('{0},{1},Data is correct' -f $msg)), $_ }
 
   $gmail = $_.gmail
   $title = $_.title
@@ -175,31 +165,30 @@ function Update-GUser {
   $_
  }
 }
-# ======================================== Main =======================================
-Import-Module -Name 'CommonScriptFunctions'
 
+# ======================================== Main =======================================
 Show-BlockInfo Start
+Import-Module -Name 'CommonScriptFunctions'
+Import-Module -Name ActiveDirectory -Cmdlet Get-ADUser -WarningAction SilentlyContinue -ErrorAction Stop
+
+Show-BlockInfo Main
 if ($WhatIf) { Show-TestRun }
 
 $gam = 'C:\GAM7\gam.exe'
 
-Write-Host 'Runs every 60 minutes' -F Green
+if (!$WhatIf) { Write-Host 'Runs every 60 minutes' -F Green }
 do {
- Clear-SessionData
- Connect-ADSession -DomainControllers $DomainControllers -Credential $ADCredential -Cmdlets 'Get-ADUser'
 
- Get-ADObjs |
+ Get-ADObjs -Cred $ADCredential |
   Format-Obj |
    Compare-GData |
     Update-GUser |
      Add-GGroupMember
 
- Clear-SessionData
- if (!$WhatIf) {
-  Write-Host ( 'Next Run at {0}' -f (Get-Date).AddMinutes(60) ) -F Green
-  Start-Sleep (60 * 60)
- }
-} until ($WhatIf -or ((Get-Date) -ge $StopTime))
+ if ($WhatIf) { break }
+ Write-Host ( 'Next Run at {0}' -f (Get-Date).AddMinutes(60) ) -F Green
+ Start-Sleep (60 * 60)
+} until ((Get-Date) -ge $StopTime)
 
 if ($WhatIf) { Show-TestRun }
 Show-BlockInfo End
