@@ -6,7 +6,7 @@ A PowerShell script to synchronize Active Directory user attributes with Google 
 
 - PowerShell 5.0 or higher
 - GAM (Google Apps Manager) installed at `C:\GAM7\gam.exe`
-- Active Directory domain controller access
+- Active Directory access (credential with read permissions)
 - Google Workspace admin access
 - Configured oauth2.txt file for GAM authentication
 
@@ -48,8 +48,7 @@ A PowerShell script to synchronize Active Directory user attributes with Google 
 
 | Parameter         | Type         | Required | Description                                |
 | ----------------- | ------------ | -------- | ------------------------------------------ |
-| DomainControllers | String[]     | Yes      | AD domain controller(s) to connect to      |
-| ADCredential      | PSCredential | Yes      | AD account with proper permissions         |
+| ADCredential      | PSCredential | Yes      | AD account passed to `Get-ADUser` via `-Credential` |
 | GoogleDomain      | String       | Yes      | Google Workspace domain name               |
 | GoogleGroup       | String       | Yes      | Google Group to manage teacher memberships |
 | StopTime          | String       | No       | Time to stop processing (default: 5:00 PM) |
@@ -59,13 +58,13 @@ A PowerShell script to synchronize Active Directory user attributes with Google 
 
 ```powershell
 # Basic usage
-Set-GSuiteAttributes.PS1 -DCs "dc01.domain.com" -ADCred $credentials -GoogleDomain "domain.com" -GoogleGroup "teachers@domain.com"
+Set-GSuiteAttributes.PS1 -ADCred $credentials -GoogleDomain "domain.com" -GoogleGroup "teachers@domain.com"
 
 # Test run with verbose output
-Set-GSuiteAttributes.PS1 -DCs "dc01.domain.com" -ADCred $credentials -GoogleDomain "domain.com" -GoogleGroup "teachers@domain.com" -WhatIf -Verbose
+Set-GSuiteAttributes.PS1 -ADCred $credentials -GoogleDomain "domain.com" -GoogleGroup "teachers@domain.com" -WhatIf -Verbose
 
 # Set custom stop time
-Set-GSuiteAttributes.PS1 -DCs "dc01.domain.com" -ADCred $credentials -GoogleDomain "domain.com" -GoogleGroup "teachers@domain.com" -StopTime "6:00 PM"
+Set-GSuiteAttributes.PS1 -ADCred $credentials -GoogleDomain "domain.com" -GoogleGroup "teachers@domain.com" -StopTime "6:00 PM"
 ```
 
 ## Error Handling
@@ -73,13 +72,12 @@ Set-GSuiteAttributes.PS1 -DCs "dc01.domain.com" -ADCred $credentials -GoogleDoma
 - Uses try-catch blocks for GAM operations
 - Continues processing on individual user errors
 - Logs all operations and errors
-- Clears session data between cycles
 
 ## Dependencies
 
 - CommonScriptFunctions module
 - GAM for Google Workspace operations
-- Active Directory PowerShell module
+- Active Directory PowerShell module (only `Get-ADUser` is imported)
 
 ## Notes
 
